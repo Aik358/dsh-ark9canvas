@@ -1,0 +1,7 @@
+# dsh-ark9canvas bundle patch: inserts the image plugin row into the web
+# profile roster. The node half (exports ".") runs in the host process
+# (agent image tool, /api/ark9-canvas/* routes, OpenAI-compatible proxy);
+# the `dsh.client` declaration loads the browser half (exports "./client").
+- insert:
+    - id: ark9-canvas-pre
+      name: '@deepseek-ai/dsh-ark9canvas'
