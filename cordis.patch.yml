@@ -4,4 +4,4 @@
 # the `dsh.client` declaration loads the browser half (exports "./client").
 - insert:
     - id: ark9-canvas-pre
-      name: '@deepseek-ai/dsh-ark9canvas'
+      name: '@a9i5k4/dsh-ark9canvas'
