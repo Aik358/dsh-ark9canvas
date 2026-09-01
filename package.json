@@ -1,7 +1,7 @@
 {
   "name": "@a9i5k4/dsh-ark9canvas",
   "description": "DSH 生图插件 Ark9canvas：Agent 生图(默认需用户批准) + 浮窗生图工作台(比例/透明背景/批量/提示词库/多渠道/生成记录)，OpenAI 兼容图片 API 文生图/图生图。",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -12,7 +12,8 @@
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

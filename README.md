@@ -1,89 +1,177 @@
-# dsh-ark9canvas
+# dsh-ark9canvas — Image Generation Workbench & Agent Tool for DeepSeek Harness
 
-DSH(DeepSeek Harness)生图插件。Agent 和用户都能直接生成图片,**Agent 发起的生图默认需要你批准**(防误计费)。生图工作台能力对齐 WorldCodes Canvas(独立实现,无其版权):
+<p align="center">
+  <a href="README.zh-CN.md">中文</a> · <b>English</b> · License BSD-3-Clause · <code>pnpm add @a9i5k4/dsh-ark9canvas</code>
+</p>
 
-- **Agent 工具**:`ark9_generate_image`(文生图/图生图/透明背景/批量 1-10 张),默认阻塞等待你在面板点批准;`ark9_list_images` 列历史。
-- **浮窗工作台**(默认):右下角 🖼️ FAB → 生成 / 审批 / 提示词 / 记录 / 说明 五页签。装了 dsh-cua 自动堆叠其 FAB 上方。
-- **侧栏集成**(可选):装了 dsh-better-sidebar 时自动注册为侧栏页签。
-- **比例与尺寸**:比例预设网格(1:1…16:9(4k))+手动 W×H(16 倍数对齐);gpt-image 系自动吸附标准三档,其他模型按质量预算(低1K/中2K/高4K)计算。
-- **提示词库**:本地收藏 + 自定义 JSON 来源(经本机代理拉取,绕开浏览器 CORS)。
-- **多渠道**:渠道聚合,一键切换当前渠道,逐渠道拉取模型。
-- **生成记录**:持久化历史,失败重试、多选删除、点击预览。
-- **设置页**:渠道 / 安全(审批) / 提示词来源 / 输出目录 / 配置导入导出。
+> **v0.3.0 MAJOR UPDATE** — The image workbench is now feature-complete against the reference design: aspect-ratio grid with the same quality-budget + 16px-alignment formula, transparent background, batch generation up to 10 images (independent sub-tasks, partial success still returns what finished), a prompt library with custom JSON sources, multi-channel aggregation, persistent generation logs with retry, and config import/export.
 
-## 功能
+An **image-generation plugin** for the DeepSeek Harness Web GUI: the agent paints on request via one tool, you paint on demand in a floating workbench — and every agent-initiated generation **waits for your approval** by default, so nothing bills without a human nod.
 
-| 能力 | 说明 |
+**The problem it solves**: image APIs bill per call, yet agent-initiated generation usually runs blind — a bad prompt retries itself, a loop burns your balance. This plugin puts a human gate in the loop: the tool blocks until you approve in the panel (or denies/timeouts with a clear message and zero cost), while the workbench itself stays one click away for your own un-gated use.
+
+---
+
+## Highlights in 30 seconds
+
+| | |
 |---|---|
-| Agent 生图工具 | `ark9_generate_image(prompt, images?, size?, quality?, count?, transparent?, model?, returnDataUrl?)` |
-| Agent 审批门控 | 默认 `always`:工具调用阻塞等待用户批准;拒绝/超时返回明确文案(未扣费)。设置页可改 `never` |
-| 图片迭代 | `images` 可传参考图 dataURL **或上一次生成的本地文件路径** |
-| 批量 | count 1-10,每张独立子任务聚合(batch),部分成功也返回已出图 |
-| 透明背景 | `transparent: true` → `background:"transparent"` |
-| 尺寸系统 | 比例网格(质量预算+16px 对齐,同 canvas 公式)/手动 W×H;gpt-image 系吸附标准三档 |
-| 历史列表工具 | `ark9_list_images(limit?)` |
-| 浮窗工作台 | 生成 / 审批(等待时长+参数) / 提示词(搜索+收藏+自定义源) / 记录(重试+删除+预览) / 说明 |
-| FAB 徽标 | 待审批数角标(5s 轮询);dsh-cua 共存堆叠 |
-| better-sidebar | `ctx.get('betterSidebar')` 探测,`registerTab` 侧栏页签 |
-| 多渠道 | channels 聚合 + activeChannelId;Agent/面板用当前渠道 |
-| 配置导入导出 | JSON 导出下载 / 导入回填 |
-| 设置页 | 渠道(逐渠道拉模型) / 安全 / 提示词来源 / 输出目录 |
+| **Approval gate by default** | Every agent generation waits in the panel's Approvals tab — approve, deny, or let it time out; denial and timeout never bill |
+| **One workbench, two homes** | Floating FAB + glass panel out of the box; auto-registers as a Better Sidebar tab when `dsh-better-sidebar` is installed; stacks above `dsh-cua`'s FAB when both exist |
+| **Full size system** | Aspect-ratio grid (12 presets + auto) computed with the quality-budget + 16px-alignment formula; manual W×H with 16-multiple snapping; gpt-image models auto-snap to the three native sizes |
+| **Batch up to 10** | Each image runs as an independent sub-task aggregated into one batch — partial success still returns what finished, with per-batch ok/fail counts |
+| **Transparent background** | One toggle sends `background:"transparent"` (supported by gpt-image family) |
+| **Prompt library** | Local favorites (☆) + custom JSON sources fetched through a host-side proxy — no CORS, no bundled third-party content |
+| **Multi-channel aggregation** | Keep several OpenAI-compatible relays (baseURL + key + model each), switch the active one, fetch model lists per channel |
+| **Persistent generation logs** | Every batch is recorded with params and outcomes; failed batches retry with one click; multi-select delete |
+| **AI-friendly by design** | Tool results return saved file paths + dimensions — never base64 blobs — unless you explicitly ask for them; references accept dataURLs *or* previous output paths for iterative editing |
 
-**与 canvas 的差异(后端/宿主限制,非缺失)**:视频创作台(vankit 无视频模型)、蒙版 inpainting UI、Gemini 格式、无限画布节点编辑、WebDAV 同步(以导入/导出替代)。提示词库不捆绑任何 WorldCodes 内容,来源由用户自行添加。
+---
 
-## 安装
+## Feature tour
+
+### Approval gate — human in the loop, by default
+
+When the agent calls `ark9_generate_image`, the request appears in the panel's **Approvals** tab with the prompt, parameters, and elapsed wait time. Approve → generation starts and bills; Deny → the tool returns a clear "user denied" message and the agent asks what to change instead of retrying; Timeout (configurable, 5–600 s) → cancelled, nothing billed. Set **Settings → Ark9 生图 → 安全** to `never` if you want unattended auto-generation.
+
+### Workbench — five tabs
+
+- **生成 Generate**: prompt, reference images (upload or clipboard paste), model dropdown with per-channel fetch, aspect-ratio grid / manual W×H, quality, transparent toggle, 1–10 count
+- **审批 Approvals**: pending agent requests with one-click approve/deny
+- **提示词 Prompts**: search, click to apply, ☆ to favorite locally; custom JSON sources (`[{title, prompt, tags?}]`) proxied through the host to bypass browser CSP/CORS
+- **记录 Logs**: every generation with status pills (成功 / 部分成功 / 失败), retry, multi-select delete, click-to-preview
+- **说明 About**: quick reference
+
+### Size system — faithful to the reference formula
+
+Ratios compute their pixel dimensions from a quality budget (low 1K² / medium 2K² / high 4K²) with 16-pixel alignment, exactly like the reference workbench. Because the gpt-image family only accepts three native sizes (1024×1024, 1536×1024, 1024×1536), gpt-image models automatically snap the computed size to the nearest native one; other models send the raw computed size. Manual W×H with a 16-multiple alignment toggle is always available.
+
+### Iterative editing — paths, not blobs
+
+`ark9_generate_image` returns saved file paths with dimensions. Pass any previous output path back via `images` and the plugin reads the file and runs an `/images/edits` multipart call — multi-turn "make the robot red" works without ever stuffing base64 into the conversation. `returnDataUrl: true` opts into inline base64 when a client truly needs it.
+
+### Channels — aggregate your relays
+
+Configure multiple OpenAI-compatible channels (name + baseURL + key + default model), mark one active, fetch each channel's model list from its own `/models`. The active channel serves both the agent tools and the workbench; single-channel setups from older versions migrate automatically.
+
+---
+
+## Engineering core (restraint by design)
+
+- **Zero runtime dependencies** beyond Node built-ins
+- **Batch aggregation**: count N → N independent sub-tasks (n:1 each), merged into one batch view with ok/fail counts — one slow image never blocks the others
+- **Durable state**: tasks and logs persist to `~/.dsh/ark9-canvas-*.json`; a server restart never orphans a poll
+- **Loopback-only routes**: every API route rejects non-localhost callers; file routes are name-sanitized against path traversal
+- **No third-party prompt content bundled**: sources are user-provided URLs
+
+---
+
+## Install (one command)
+
+> Prerequisite: install [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and start `dsh web` at least once.
+
+Run in the **profile directory** (`~/.dsh/profiles/web`):
 
 ```bash
+cd ~/.dsh/profiles/web
 pnpm add @a9i5k4/dsh-ark9canvas
 ```
 
-在 DSH 的 web profile 里按 dsh 插件协议加载(bundle patch + client inject 声明已在 package.json)。
+Then edit `package.json` in that directory and append to the `dsh.profile.bundles` array:
 
-## 配置
+```json
+"@a9i5k4/dsh-ark9canvas"
+```
 
-侧窗面板或 设置 →「Ark9 生图」:
+Restart **dsh web** — the 🖼️ floating button appears (or a sidebar tab, with Better Sidebar installed). Open **Settings → Ark9 生图** once to add a channel (baseURL with `/v1`, API key, model such as `gpt-image-2`).
 
-| 字段 | 说明 | 示例 |
-|---|---|---|
-| BaseURL | OpenAI 兼容图片 API 地址(**含 /v1**) | `https://sub.vankit.top/v1` |
-| API Key | 渠道密钥 | `sk-...` |
-| 模型 | 生图模型名 | `gpt-image-2` |
-| Agent 审批 | always(默认,每次批准) / never(免审批) | `always` |
-| 审批超时 | 5-600 秒,超时自动取消(未扣费) | `120` |
-| 输出目录 | 留空 = `~/Pictures/ark9-canvas` | `D:/my-images` |
+> No pnpm? `npm install @a9i5k4/dsh-ark9canvas` works the same.
+> pnpm v11 blocks packages published <1 day ago: set `minimumReleaseAge: 0` in pnpm-workspace.yaml or pin an explicit version for same-day updates.
 
-配置存于 `~/.dsh/ark9-canvas.json`;任务持久化 `~/.dsh/ark9-canvas-tasks.json`(重启不丢)。
+### AI-era installation
 
-## Agent 用法
+Copy this to the AI assistant you're already using:
 
-对话中说「画一张蓝发少女」「给文章配图」「把刚才那张图改成红色」,Agent 会:
+```text
+Install the npm package @a9i5k4/dsh-ark9canvas in the DeepSeek Harness web profile
+directory ~/.dsh/profiles/web (pnpm add or npm install),
+append "@a9i5k4/dsh-ark9canvas" to the dsh.profile.bundles array in package.json,
+then restart dsh web. After that, open Settings → Ark9 生图 and add an
+OpenAI-compatible image channel (baseURL with /v1, API key, model).
+```
 
-1. 调用 `ark9_generate_image` → 插件弹审批请求(FAB 角标提醒)
-2. 你在面板「审批」页点批准(或拒绝/等超时)
-3. 批准后生成,结果保存到输出目录,工具返回路径+尺寸
-4. 后续迭代:Agent 把路径传回 `images` 参数即可(参考图走 `/images/edits`)
-
-拒绝后 Agent 会询问你想怎么改,不会重复扣费尝试。
-
-## 开发
+### Updating
 
 ```bash
-node --check lib/index.js && node --check lib/client.js
-node smoke-test.mjs          # 15 项:工具/路由/审批批准/拒绝/超时/路径防护(不真调 API)
-node e2e-approval-test.mjs   # 真实出图端到端(需先配置真实 API,会计费!)
+cd ~/.dsh/profiles/web && pnpm up @a9i5k4/dsh-ark9canvas
 ```
 
-### 结构
+---
 
+## Configuration
+
+Config file `~/.dsh/ark9-canvas.json` (everything adjustable in the Settings GUI):
+
+```json
+{
+  "baseURL": "https://your-relay.example/v1",
+  "apiKey": "sk-...",
+  "model": "gpt-image-2",
+  "quality": "high",
+  "size": "1536x1024",
+  "count": 1,
+  "agentApproval": "always",
+  "approvalTimeoutSec": 120,
+  "channels": [
+    { "id": "c1", "name": "relay-a", "baseURL": "https://your-relay.example/v1", "apiKey": "sk-...", "model": "gpt-image-2" }
+  ],
+  "activeChannelId": "c1",
+  "promptSources": [
+    { "id": "ps1", "name": "my prompts", "url": "https://example.com/prompts.json" }
+  ],
+  "outputDir": ""
+}
 ```
-lib/
-  index.js    # node 端:2 工具 + 9 路由 + OpenAI 兼容代理(异步任务) + 审批队列
-  client.js   # 浏览器端:FAB + 浮窗(vanilla DOM,与 sidebar tab 共用实现) + 设置页
-cordis.patch.yml  # DSH profile bundle 补丁
-e2e-approval-test.mjs  # 真实出图端到端(计费)
-smoke-test.mjs         # 离线联调测试
-```
 
-## 协议
+| Key | Meaning |
+|---|---|
+| `agentApproval` | `always` (default) — agent generations need panel approval; `never` — unattended |
+| `approvalTimeoutSec` | 5–600 s; timeout cancels without billing |
+| `channels` / `activeChannelId` | Multi-channel aggregation; falls back to the top-level `baseURL`/`apiKey`/`model` when empty |
+| `outputDir` | Where images are saved; empty = `~/Pictures/ark9-canvas` |
 
-BSD-3-Clause。独立实现,不包含 WorldCodes Canvas 的任何代码或品牌。
+Tasks persist to `~/.dsh/ark9-canvas-tasks.json`, generation logs to `~/.dsh/ark9-canvas-logs.json`.
+
+---
+
+## Structure
+
+- `lib/index.js` — Host half: two agent tools, eleven routes, OpenAI-compatible image proxy (async task protocol + batch aggregation), approval queue, persistent logs (zero runtime deps, Node built-ins only)
+- `lib/client.js` — Browser half: floating FAB + glass workbench (shared vanilla-DOM implementation for floating panel and sidebar tab), settings page
+- `cordis.patch.yml` — plugin registration row
+- `smoke-test.mjs` — offline integration test (tools / routes / approval paths, no API calls)
+- `e2e-approval-test.mjs` — real end-to-end generation test (bills!)
+
+## Known limitations
+
+- Video generation, mask/inpainting painting UI, Gemini-format calls, the infinite-canvas node editor, and WebDAV sync are out of scope (backend has no video model; config import/export stands in for sync).
+- The prompt library ships without any third-party content — add your own sources.
+- Panel-initiated (manual) generations are never approval-gated: pressing the button **is** the approval, and it bills.
+- Plugin-set changes require a dsh restart.
+
+---
+
+## Credits
+
+This project is built human-machine collaboratively:
+
+- **Aik358** — project owner: product direction and engineering.
+- **ZCode (GLM, Z.ai)** — autonomous engineering agent: plugin implementation, protocol reverse-engineering of the async-task/media-upload relay protocol, test suites.
+
+---
+
+## Release
+
+- GitHub: https://github.com/Aik358/dsh-ark9canvas
+- npm: `@a9i5k4/dsh-ark9canvas`
+- License: BSD-3-Clause · Independent implementation, contains no WorldCodes Canvas code or branding
