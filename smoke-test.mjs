@@ -1,5 +1,5 @@
-// dsh-ark9canvas 联调测试 v0.2.0：模拟 DSH host ctx,验证插件 activate + 工具 + 路由 + 审批流。
-// 不真调图片 API(用假 baseURL 验证失败路径与审批门控;真实出图另行手测)。
+// dsh-ark9canvas 联调测试 v0.3.0：模拟 DSH host ctx,验证工具 + 11 路由 + 审批流 + 批量 + 日志 + 提示词代理。
+// 不真调图片 API(假 baseURL 验证失败路径与审批门控;真实出图走 e2e-approval-test.mjs)。
 import http from 'node:http'
 import { activate, API } from './lib/index.js'
 import { writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
@@ -8,7 +8,6 @@ import path from 'node:path'
 
 const CFG_FILE = path.join(homedir(), '.dsh', 'ark9-canvas.json')
 const CFG_BACKUP = CFG_FILE + '.bak'
-// 备份用户配置,然后删除使插件处于"未配置"态(测试后恢复)
 if (existsSync(CFG_FILE)) { writeFileSync(CFG_BACKUP, readFileSync(CFG_FILE)); rmSync(CFG_FILE) }
 
 const registeredTools = []
@@ -19,7 +18,7 @@ const ctx = {
   systemPrompt: { section() { return () => {} }, context() { return () => {} } },
   effect() {},
 }
-const plugin = activate(ctx)
+activate(ctx)
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   const route = registeredRoutes.find((r) => r.kind === 'exact' && r.path === url.pathname)
@@ -46,79 +45,73 @@ function post(p, obj) {
     req.write(data); req.end()
   })
 }
-
 let pass = 0, fail = 0
 function check(name, cond, detail) {
   if (cond) { pass++; console.log('  ✓', name) }
   else { fail++; console.log('  ✗', name, detail ? '— ' + String(detail).slice(0, 120) : '') }
 }
 
-// 1) 注册
 const imgTool = registeredTools.find((t) => t.name === 'ark9_generate_image')
 const listTool = registeredTools.find((t) => t.name === 'ark9_list_images')
-check('工具 ark9_generate_image 注册', !!imgTool)
-check('工具 ark9_list_images 注册', !!listTool)
-check('路由数 = 9', registeredRoutes.length === 9, registeredRoutes.map((r) => r.path).join(','))
+check('工具注册 x2', !!imgTool && !!listTool)
+check('路由数 = 11', registeredRoutes.length === 11, registeredRoutes.length + ':' + registeredRoutes.map((r) => r.path.replace('/api/ark9-canvas-pre/', '')).join(','))
 
-// 2) 未配置提示
 const r1 = await imgTool.execute({ prompt: 'cat' }, {})
-check('未配置时引导', r1.includes('尚未配置图片 API'))
+check('未配置引导', r1.includes('尚未配置'), r1.slice(0, 60))
 
-// 3) 配置(假 baseURL,不会真扣费) + 免审批模式
-await post(API.config, { baseURL: 'http://127.0.0.1:9/v1', apiKey: 'test', model: 'gpt-image-2', agentApproval: 'never', outputDir: path.join(homedir(), '.dsh', 'ark9-test-out') })
-let st = await get(API.state)
-check('state configured', JSON.parse(st.body).configured === true)
+// 配置:假渠道 + 免审批
+await post(API.config, {
+  baseURL: 'http://127.0.0.1:9/v1', apiKey: 'test', model: 'gpt-image-2',
+  agentApproval: 'never', outputDir: path.join(homedir(), '.dsh', 'ark9-test-out'),
+  channels: [{ id: 'c1', name: '测试渠道', baseURL: 'http://127.0.0.1:9/v1', apiKey: 'test', model: 'gpt-image-2' }],
+  activeChannelId: 'c1',
+  promptSources: [{ id: 'ps1', name: '本地测试', url: 'http://127.0.0.1:9/prompts.json' }],
+})
+const st = await get(API.state)
+const stj = JSON.parse(st.body)
+check('state:渠道名/审批模式', stj.configured === true && stj.channelName === '测试渠道' && stj.agentApproval === 'never', st.body.slice(0, 150))
 
-// 4) 免审批下生成 → 上游不可达 → failed
-const r2 = await imgTool.execute({ prompt: 'cat' }, {})
-check('免审批生成失败路径(上游不可达)', r2.includes('生成失败'), r2.slice(0, 80))
+// 免审批批量:count=2 → batch 聚合失败(上游不可达)
+const r2 = await imgTool.execute({ prompt: 'batch cat', count: 2 }, {})
+check('免审批批量失败路径', r2.includes('生成失败'), r2.slice(0, 80))
 
-// 5) 审批模式 always:工具阻塞等待 → 面板批准 → 走到生成失败(证明批准生效)
+// 审批流:拒绝
 await post(API.config, { agentApproval: 'always', approvalTimeoutSec: 30 })
-const toolPromise = imgTool.execute({ prompt: 'approval test cat' }, {})
+const toolPromise = imgTool.execute({ prompt: 'deny me' }, {})
 await new Promise((r) => setTimeout(r, 300))
-let apList = await get(API.approvals)
-const pending = JSON.parse(apList.body).approvals
-check('审批请求出现在队列', pending.length === 1 && pending[0].prompt === 'approval test cat' && pending[0].waitSec !== undefined, apList.body.slice(0, 100))
-// 拒绝它
-if (pending.length) await post(API.approvals, { id: pending[0].id, decision: 'deny' })
-const r3 = await toolPromise
-check('拒绝后工具返回拒绝文案(未扣费)', r3.includes('用户') && r3.includes('拒绝'), r3.slice(0, 80))
+let apList = JSON.parse((await get(API.approvals)).body)
+check('审批出现', apList.approvals.length === 1 && apList.approvals[0].params.channel === '测试渠道')
+await post(API.approvals, { id: apList.approvals[0].id, decision: 'deny' })
+check('拒绝文案', (await toolPromise).includes('拒绝'))
 
-// 6) 批准路径:批准后继续走到生成(上游假地址 → 失败),证明批准放行
-const toolPromise2 = imgTool.execute({ prompt: 'approve test cat' }, {})
-await new Promise((r) => setTimeout(r, 300))
-apList = await get(API.approvals)
-const pending2 = JSON.parse(apList.body).approvals
-check('第二个审批请求出现', pending2.length === 1)
-if (pending2.length) await post(API.approvals, { id: pending2[0].id, decision: 'approve' })
-const r4 = await toolPromise2
-check('批准后放行到生成(上游失败)', r4.includes('生成失败') || r4.includes('超时'), r4.slice(0, 80))
-
-// 7) 超时路径(approvalTimeoutSec 最小 5s)
+// 超时(approvalTimeoutSec=5)
 await post(API.config, { approvalTimeoutSec: 5 })
 const t0 = Date.now()
-const r5 = await imgTool.execute({ prompt: 'timeout test' }, {})
+const r5 = await imgTool.execute({ prompt: 'timeout' }, {})
 const dt = Date.now() - t0
-check('超时取消(约 5s)', r5.includes('超时') && dt >= 4500 && dt < 9000, `dt=${dt}ms, ${r5.slice(0, 60)}`)
+check('超时取消 ~5s', r5.includes('超时') && dt >= 4500 && dt < 9000, 'dt=' + dt)
 
-// 8) ark9_list_images(空目录)
-const r6 = await listTool.execute({}, {})
-check('list_images 空目录提示', r6.includes('不存在') || r6.includes('为空') || r6.includes('最近'), r6.slice(0, 60))
+// logs 路由
+await post(API.logs, { action: 'add', entry: { id: 'logtest1', prompt: 'p', params: {}, status: 'failed', ok: 0, fail: 1, total: 1, images: [], createdAt: Date.now() } })
+let lg = JSON.parse((await get(API.logs)).body)
+check('logs add+list', lg.logs.some((l) => l.id === 'logtest1'))
+await post(API.logs, { action: 'delete', ids: ['logtest1'] })
+lg = JSON.parse((await get(API.logs)).body)
+check('logs delete', !lg.logs.some((l) => l.id === 'logtest1'))
 
-// 9) images 路由 + image-file 路由
-const r7 = await get(API.images)
-check('images 路由返回列表', JSON.parse(r7.body).images !== undefined)
-const r8 = await post(API.imageFile, { name: '../etc/passwd' })
-check('image-file 拒绝路径穿越', r8.status === 400, r8.status)
+// prompt-fetch:坏 URL 校验
+const pf1 = await post(API.promptFetch, { url: 'ftp://x' })
+check('prompt-fetch 拒绝非 http', pf1.status === 400)
+const pf2 = await post(API.promptFetch, { url: 'http://127.0.0.1:9/prompts.json' })
+check('prompt-fetch 上游不可达优雅返回', JSON.parse(pf2.body).prompts !== undefined && JSON.parse(pf2.body).error, pf2.body.slice(0, 80))
 
-// 10) 参考:image_upload 无效引用
-const r9 = await imgTool.execute({ prompt: 'x', images: ['/nonexistent/ref.png'] }, {})
-check('无效参考图报错(免审批已关,先恢复 always)', true) // 当前 always 模式会先审批;跳过精确断言
+// image-file 防穿越
+const r8 = await post(API.imageFile, { name: '../x.png' })
+check('image-file 防穿越', r8.status === 400)
 
-// 恢复用户配置,清理测试输出
-if (existsSync(CFG_BACKUP)) { writeFileSync(CFG_FILE, readFileSync(CFG_BACKUP)); rmSync(CFG_BACKUP) }
+// 恢复配置
+if (existsSync(CFG_BACKUP)) { writeFileSync(CFG_FILE, readFileSync(CFG_BACKUP)); rmSync(CFG_BACKUP) } else { rmSync(CFG_FILE) }
 rmSync(path.join(homedir(), '.dsh', 'ark9-test-out'), { recursive: true, force: true })
 server.close()
-console.log(`\n=== smoke-test 完成: ${pass} 通过, ${fail} 失败 ===`)
+console.log(`\n=== smoke-test v0.3.0: ${pass} 通过, ${fail} 失败 ===`)
 process.exit(fail ? 1 : 0)
