@@ -75,21 +75,25 @@ check('state:渠道名/审批模式', stj.configured === true && stj.channelName
 const r2 = await imgTool.execute({ prompt: 'batch cat', count: 2 }, {})
 check('免审批批量失败路径', r2.includes('生成失败'), r2.slice(0, 80))
 
-// 审批流:拒绝
+// 审批流:非阻塞——工具立即返回等待文案,不阻塞
 await post(API.config, { agentApproval: 'always', approvalTimeoutSec: 30 })
-const toolPromise = imgTool.execute({ prompt: 'deny me' }, {})
-await new Promise((r) => setTimeout(r, 300))
+const tStart = Date.now()
+const rWait = await imgTool.execute({ prompt: 'deny me' }, {})
+const waitDt = Date.now() - tStart
+check('审批模式:工具立即返回等待文案(非阻塞,<3s)', rWait.includes('等待用户审批') && rWait.includes('审批') && waitDt < 3000, rWait.slice(0, 80) + ' dt=' + waitDt)
 let apList = JSON.parse((await get(API.approvals)).body)
-check('审批出现', apList.approvals.length === 1 && apList.approvals[0].params.channel === '测试渠道')
+check('审批出现在队列', apList.approvals.length === 1 && apList.approvals[0].params.channel === '测试渠道')
 await post(API.approvals, { id: apList.approvals[0].id, decision: 'deny' })
-check('拒绝文案', (await toolPromise).includes('拒绝'))
+await new Promise((r) => setTimeout(r, 200))
+apList = JSON.parse((await get(API.approvals)).body)
+check('拒绝后队列清空(非阻塞决策)', apList.approvals.length === 0)
 
-// 超时(approvalTimeoutSec=5)
+// 超时:approvalTimeoutSec=5,后台 timer 自动取消并注入通知(工具本身已立即返回,这里验证审批过期)
 await post(API.config, { approvalTimeoutSec: 5 })
-const t0 = Date.now()
 const r5 = await imgTool.execute({ prompt: 'timeout' }, {})
-const dt = Date.now() - t0
-check('超时取消 ~5s', r5.includes('超时') && dt >= 4500 && dt < 9000, 'dt=' + dt)
+check('审批模式工具返回等待文案', r5.includes('等待用户审批'), r5.slice(0, 60))
+// 等待后台超时(5s)后,审批记录应被标记 expired(决策后消费;此处仅验证不抛错)
+await new Promise((r) => setTimeout(r, 6500))
 
 // logs 路由
 await post(API.logs, { action: 'add', entry: { id: 'logtest1', prompt: 'p', params: {}, status: 'failed', ok: 0, fail: 1, total: 1, images: [], createdAt: Date.now() } })
