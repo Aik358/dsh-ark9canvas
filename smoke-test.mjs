@@ -1,7 +1,7 @@
 // dsh-ark9canvas 联调测试 v0.3.0：模拟 DSH host ctx,验证工具 + 11 路由 + 审批流 + 批量 + 日志 + 提示词代理。
 // 不真调图片 API(假 baseURL 验证失败路径与审批门控;真实出图走 e2e-approval-test.mjs)。
 import http from 'node:http'
-import { activate, API } from './lib/index.js'
+import { apply, API } from './lib/index.js'
 import { writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -18,7 +18,7 @@ const ctx = {
   systemPrompt: { section() { return () => {} }, context() { return () => {} } },
   effect() {},
 }
-activate(ctx)
+apply(ctx)
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   const route = registeredRoutes.find((r) => r.kind === 'exact' && r.path === url.pathname)

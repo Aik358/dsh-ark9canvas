@@ -1,6 +1,6 @@
 // 真实端到端验证:Agent 工具 → 审批(主进程内模拟用户批准) → vankit 出图。
 // low 质量 1024x1024 单张,最小成本。
-import { activate, API } from './lib/index.js'
+import { apply, API } from './lib/index.js'
 import http from 'node:http'
 
 const tools = [], routes = []
@@ -10,7 +10,7 @@ const ctx = {
   systemPrompt: { section() { return () => {} }, context() { return () => {} } },
   effect() {},
 }
-activate(ctx)
+apply(ctx)
 const tool = tools.find((t) => t.name === 'ark9_generate_image')
 
 // 主进程挂 HTTP(模拟宿主路由),供审批模拟走真实协议
