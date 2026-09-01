@@ -1,7 +1,7 @@
 {
   "name": "@a9i5k4/dsh-ark9canvas",
   "description": "DSH 生图插件 Ark9canvas：Agent 可调用的生图工具 + 侧窗生图工作台，支持 OpenAI 兼容图片 API（gpt-image 等）文生图/图生图。",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
