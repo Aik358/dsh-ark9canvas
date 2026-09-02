@@ -1,4 +1,4 @@
-// 真实端到端验证:Agent 工具 → 审批(主进程内模拟用户批准) → vankit 出图。
+// 真实端到端验证:Agent 工具 → 审批(主进程内模拟用户批准) → 真实图片 API 出图。
 // low 质量 1024x1024 单张,最小成本。
 import { apply, API } from './lib/index.js'
 import http from 'node:http'
