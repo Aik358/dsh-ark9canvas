@@ -4,7 +4,7 @@
   <a href="README.zh-CN.md">中文</a> · <b>English</b> · License BSD-3-Clause · <code>pnpm add @a9i5k4/dsh-ark9canvas</code>
 </p>
 
-> **v0.3.0 MAJOR UPDATE** — The image workbench is now feature-complete against the reference design: aspect-ratio grid with the same quality-budget + 16px-alignment formula, transparent background, batch generation up to 10 images (independent sub-tasks, partial success still returns what finished), a prompt library with custom JSON sources, multi-channel aggregation, persistent generation logs with retry, and config import/export.
+> **v0.4.0 UPDATE** — Bilingual UI (Chinese/English, one-tap switch in the panel header and Settings) and a full stroke-SVG icon set replacing emoji, matching the DeepSeek Harness visual language. Evolution roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). — The image workbench is now feature-complete against the reference design: aspect-ratio grid with the same quality-budget + 16px-alignment formula, transparent background, batch generation up to 10 images (independent sub-tasks, partial success still returns what finished), a prompt library with custom JSON sources, multi-channel aggregation, persistent generation logs with retry, and config import/export.
 
 An **image-generation plugin** for the DeepSeek Harness Web GUI: the agent paints on request via one tool, you paint on demand in a floating workbench — and every agent-initiated generation **waits for your approval** by default, so nothing bills without a human nod.
 
@@ -24,6 +24,7 @@ An **image-generation plugin** for the DeepSeek Harness Web GUI: the agent paint
 | **Prompt library** | Local favorites (☆) + custom JSON sources fetched through a host-side proxy — no CORS, no bundled third-party content |
 | **Multi-channel aggregation** | Keep several OpenAI-compatible relays (baseURL + key + model each), switch the active one, fetch model lists per channel |
 | **Persistent generation logs** | Every batch is recorded with params and outcomes; failed batches retry with one click; multi-select delete |
+| **Bilingual UI** | One-tap Chinese/English switch (panel header + Settings), initialized from your browser language |
 | **AI-friendly by design** | Tool results return saved file paths + dimensions — never base64 blobs — unless you explicitly ask for them; references accept dataURLs *or* previous output paths for iterative editing |
 
 ---
@@ -149,6 +150,7 @@ Tasks persist to `~/.dsh/ark9-canvas-tasks.json`, generation logs to `~/.dsh/ark
 - `lib/index.js` — Host half: two agent tools, eleven routes, OpenAI-compatible image proxy (async task protocol + batch aggregation), approval queue, persistent logs (zero runtime deps, Node built-ins only)
 - `lib/client.js` — Browser half: floating FAB + glass workbench (shared vanilla-DOM implementation for floating panel and sidebar tab), settings page
 - `cordis.patch.yml` — plugin registration row
+- `docs/ROADMAP.md` — evolution roadmap: DSH-host synergies (AI prompt enhancement, memory-driven styles), cost dashboard, capability registry, mask editing
 - `smoke-test.mjs` — offline integration test (tools / routes / approval paths, no API calls)
 - `e2e-approval-test.mjs` — real end-to-end generation test (bills!)
 
